@@ -2,25 +2,47 @@
 <?php
 
 
-function write_login_log($user_login, $user) {
-    $log_file = plugin_dir_path(__FILE__) . 'logs/user_login.log'; // Chemin du fichier de log
-    $user_id = $user->ID;
-    $user_ip = $_SERVER['REMOTE_ADDR'] ?? '';
-    $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
-    $current_time = current_time('mysql');
+function write_login_log($user_login, $user_ip, $user_agent, $current_time, $action, $failed_attempts = 0) {
+    $log_dir = plugin_dir_path(__FILE__) . 'logs'; // Chemin du répertoire de logs
 
-    $log_entry = sprintf(
-        "[%s] User: %s (ID: %d) IP: %s User Agent: %s\n",
+    // Créer le dossier de logs s'il n'existe pas
+    if (!file_exists($log_dir)) {
+        if (!mkdir($log_dir, 0755, true)) {
+            error_log("Erreur : Impossible de créer le répertoire de logs.");
+            return;
+        }
+    }
+
+    $log_file = $log_dir . '/user_login.csv'; // Chemin du fichier de log CSV
+
+    // Si le fichier n'existe pas, ajouter l'en-tête des colonnes CSV
+    if (!file_exists($log_file)) {
+        $header = ['Date', 'Utilisateur', 'IP', 'User Agent', 'Action', 'Tentatives échouées'];
+        $fp = fopen($log_file, 'w'); // Créer le fichier et ajouter l'en-tête
+        fputcsv($fp, $header);
+        fclose($fp);
+    }
+
+    // Préparer les données à ajouter au fichier CSV
+    $user_login_display = $user_login ? $user_login : 'Utilisateur inconnu';
+    $log_entry = [
         $current_time,
-        $user_login,
-        $user_id,
+        $user_login_display,
         $user_ip,
-        $user_agent
-    );
+        $user_agent,
+        $action, // "LOGIN" ou "FAILED_LOGIN"
+        $failed_attempts
+    ];
 
-    // Ouvrir le fichier en mode append (ajout)
-    file_put_contents($log_file, $log_entry, FILE_APPEND);
+    // Ouvrir le fichier en mode ajout (append) pour ajouter une nouvelle ligne
+    if (($fp = fopen($log_file, 'a')) !== false) {
+        fputcsv($fp, $log_entry);
+        fclose($fp);
+    } else {
+        error_log("Erreur : Impossible d'écrire dans le fichier CSV.");
+    }
 }
+
 
 
 // Créer le dossier de logs s'il n'existe pas
@@ -59,6 +81,7 @@ function create_ia_seure_wordpress_histories_table() {
 register_activation_hook(__FILE__, 'create_ia_seure_wordpress_histories_table');
 
 // 2. Enregistrer les connexions réussies
+
 function record_user_login($user_login, $user) {
     global $wpdb;
     $table_name = $wpdb->prefix . 'ia_seure_wordpress_histories';
@@ -67,7 +90,7 @@ function record_user_login($user_login, $user) {
     $user_agent = $_SERVER['HTTP_USER_AGENT'] ?? '';
     $current_time = current_time('mysql');
 
-    // Enregistrer la connexion réussie
+    // Enregistrer la connexion réussie dans la base de données
     $wpdb->insert(
         $table_name,
         array(
@@ -77,14 +100,13 @@ function record_user_login($user_login, $user) {
             'user_agent'     => $user_agent,
             'user_date'      => $current_time,
             'action'         => 'LOGIN',
-            'failed_attempts'=> 0,
+            'failed_attempts'=> 0, // Reset des tentatives échouées à 0 après un succès
             'lock_until'     => NULL
         )
     );
 
-    // Écrire dans le fichier de log
-	
-    write_login_log($user_login, $user);
+    // Écrire dans le fichier de log CSV à chaque connexion réussie
+    write_login_log($user_login, $user_ip, $user_agent, $current_time, 'LOGIN', 0);
 }
 
 // Attacher la fonction d'enregistrement de connexion réussie
@@ -113,7 +135,7 @@ function record_failed_login($username) {
         $lock_until = date('Y-m-d H:i:s', strtotime($current_time . ' +1 hour'));
     }
 
-    // Enregistrer la tentative échouée
+    // Enregistrer la tentative échouée dans la base de données
     $wpdb->insert(
         $table_name,
         array(
@@ -126,6 +148,9 @@ function record_failed_login($username) {
             'lock_until'     => $lock_until
         )
     );
+
+    // Écrire dans le fichier de log CSV à chaque tentative échouée
+    write_login_log($username, $user_ip, $user_agent, $current_time, 'FAILED_LOGIN', $failed_attempts);
 }
 
 // Attacher la fonction d'enregistrement de tentative échouée

@@ -191,6 +191,9 @@ function __construct($plugin_name, $version)
 
 
 
+
+	
+
 	function updateSlug($new_slug) {
 		global $wpdb;
 
@@ -245,6 +248,53 @@ function __construct($plugin_name, $version)
 
 
 	
+	/**
+ * Parcourt tous les fichiers PHP dans un répertoire et remplace un texte donné.
+ *
+ * @param string $dir           Le chemin du répertoire à parcourir.
+ * @param string $search        La chaîne à rechercher dans les fichiers.
+ * @param string $replace       La chaîne qui remplacera le texte recherché.
+ * @return void
+ */
+function replace_in_php_files($dir, $search, $replace) {
+    // Vérifier si le répertoire existe
+    if (!is_dir($dir)) {
+        throw new InvalidArgumentException("Le répertoire spécifié n'existe pas : $dir");
+    }
+
+    // Utilisation de RecursiveIterator pour parcourir tous les fichiers et sous-dossiers
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($dir, RecursiveDirectoryIterator::SKIP_DOTS)
+    );
+
+    foreach ($iterator as $file) {
+        // Vérifier si le fichier a une extension PHP
+        if (pathinfo($file, PATHINFO_EXTENSION) === 'php') {
+            // Tenter de lire le contenu du fichier
+            $filePath = $file->getPathname();
+            $content = @file_get_contents($filePath);
+
+            if ($content === false) {
+                // Si le fichier ne peut pas être lu, afficher un message d'erreur
+                echo "Erreur de lecture du fichier : $filePath\n";
+                continue;
+            }
+
+            // Remplacer le texte dans le contenu
+            $newContent = str_replace($search, $replace, $content);
+
+            // Si le contenu a changé, écrire les modifications
+            if ($newContent !== $content) {
+                // Vérifier si le fichier est modifiable
+                if (is_writable($filePath)) {
+                    $writeSuccess = @file_put_contents($filePath, $newContent);
+                    
+                } 
+            }
+        }
+    }
+}
+
 
 	 function save_custom_admin_slug($new_admin_slug) {
 		createSlugTable();
@@ -308,6 +358,11 @@ function __construct($plugin_name, $version)
 			   
 					rename("$paths/$old_name->slug.php", "$paths/$nouveau_mot");
 
+						
+						// Appelle la fonction en passant le chemin du répertoire racine de votre site WordPress
+						replace_in_php_files( $paths, $mot_a_remplacer, $nouveau_mot); 
+
+
 					//updateSlug($slugs_valide);
 					global $wpdb;
 					
@@ -333,7 +388,7 @@ function __construct($plugin_name, $version)
 	
 					rewrite_rule_htaccess();
 					$logins = array(
-						home_url('wp-login.php', 'relative'),
+						home_url('admin-url.php', 'relative'),
 						home_url('login.php', 'relative'),
 						home_url($slugs_valide.'.php', 'relative'),
 						site_url($slugs_valide.'.php', 'relative'),
